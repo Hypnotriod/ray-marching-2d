@@ -1,0 +1,471 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+	<style>
+		html, body {
+			width:  100%;
+			height: 100%;
+			margin: 0;
+			padding: 0;
+		}
+	</style>
+</head>
+<body>
+<canvas id="canvas"></canvas>
+
+<script> 
+	var WIDTH = window.innerWidth;
+	var HEIGHT = window.innerHeight;
+	var RAY_ANGLE_STEP = 0.2;
+	var RAY_WIDTH = 2.5;
+	var RAY_COLOR = "#FF00BB";
+	var DISTANCE_COLOR = "#BB00FF";
+	var BOUNDS_COLOR = "#FF0000";
+	var RAY_MAX_DISTANCE = WIDTH / 4;
+	var SHOW_RAYS = true;
+	var SHOW_DISTANCE = false;
+	var SHOW_OBSTACLES = true;
+	var SHOW_OBSTACLES_BOUNDS = false;
+
+	var canvas = document.getElementById('canvas');
+	var context = canvas.getContext('2d');
+
+	var rayPoint = {
+		x: WIDTH / 2,
+		y: HEIGHT / 2,
+		angle: 0
+	};
+
+	canvas.width = WIDTH;
+	canvas.height = HEIGHT;
+
+	var w10 = WIDTH / 10;
+	var h10 = HEIGHT / 10;
+
+	var obstacles = [{
+			x: w10 * 1,
+			y: h10 * 2,
+			radius: h10 * 0.5,
+			type: "circle",
+			color: "#FFBB00"
+		}, {
+			x: w10 * 6,
+			y: h10 * 3,
+			radius: h10 * 0.9,
+			type: "circle",
+			color: "#FFBB00"
+		}, {
+			x: w10 * 8,
+			y: h10 * 7,
+			radius: h10 * 1.2,
+			type: "circle",
+			color: "#FFBB00"
+		}, {
+			x: w10 * 4,
+			y: h10 * 3,
+			width: h10 * 1,
+			height: h10 * 0.6,
+			angle: 40 / 180 * Math.PI,
+			type: "rect",
+			color: "#BBFF00"
+		}, {
+			x: w10 * 2,
+			y: h10 * 5,
+			width: h10 * 1.5,
+			height: h10 * 1.8,
+			angle: 15 / 180 * Math.PI,
+			type: "rect",
+			color: "#BBFF00"
+		}, {
+			x: w10 * 8,
+			y: h10 * 1,
+			width: h10 * 2.5,
+			height: h10 * 0.5,
+			angle: -15 / 180 * Math.PI,
+			type: "rect",
+			color: "#BBFF00"
+		}, {
+			ax: w10 * 2,
+			bx: w10 * 4,
+			cx: w10 * 3,
+			ay: h10 * 1,
+			by: h10 * 2,
+			cy: h10 * 3,
+			type: "triangle",
+			color: "#00FFAA"
+		}, {
+			ax: w10 * 5,
+			bx: w10 * 7,
+			cx: w10 * 6.5,
+			ay: h10 * 7,
+			by: h10 * 6.5,
+			cy: h10 * 7.5,
+			type: "triangle",
+			color: "#00FFAA"
+		},
+	];
+
+	function prepareObstacles() {
+		for (obstacle of obstacles) {
+			if (obstacle.type === "circle") {
+				obstacle.boundary = {
+					right: obstacle.x + obstacle.radius,
+					left: obstacle.x - obstacle.radius,
+					top: obstacle.y - obstacle.radius,
+					bottom: obstacle.y + obstacle.radius
+				};
+			} else if (obstacle.type === "rect") {
+				var c1 = {
+					x: obstacle.x,
+					y: obstacle.y
+				};
+				var c2 = getTranslatedPoint(c1, {
+						x: obstacle.x + obstacle.width,
+						y: obstacle.y
+					}, obstacle.angle);
+				var c3 = getTranslatedPoint(c1, {
+						x: obstacle.x + obstacle.width,
+						y: obstacle.y + obstacle.height
+					}, obstacle.angle);
+				var c4 = getTranslatedPoint(c1, {
+						x: obstacle.x,
+						y: obstacle.y + obstacle.height
+					}, obstacle.angle);
+				obstacle.boundary = {
+					right: Math.max(Math.max(Math.max(c1.x, c2.x), c3.x), c4.x),
+					left: Math.min(Math.min(Math.min(c1.x, c2.x), c3.x), c4.x),
+					top: Math.min(Math.min(Math.min(c1.y, c2.y), c3.y), c4.y),
+					bottom: Math.max(Math.max(Math.max(c1.y, c2.y), c3.y), c4.y),
+				};
+			} else if (obstacle.type === "triangle") {
+				obstacle.boundary = {
+					right: Math.max(Math.max(obstacle.ax, obstacle.bx), obstacle.cx),
+					left: Math.min(Math.min(obstacle.ax, obstacle.bx), obstacle.cx),
+					top: Math.min(Math.min(obstacle.ay, obstacle.by), obstacle.cy),
+					bottom: Math.max(Math.max(obstacle.ay, obstacle.by), obstacle.cy)
+				};
+				obstacle.abWidth = getDistance({
+						x: obstacle.ax,
+						y: obstacle.ay
+					}, {
+						x: obstacle.bx,
+						y: obstacle.by
+					});
+				obstacle.abAngle = getAngle({
+						x: obstacle.ax,
+						y: obstacle.ay
+					}, {
+						x: obstacle.bx,
+						y: obstacle.by
+					});
+				obstacle.bcWidth = getDistance({
+						x: obstacle.bx,
+						y: obstacle.by
+					}, {
+						x: obstacle.cx,
+						y: obstacle.cy
+					});
+				obstacle.bcAngle = getAngle({
+						x: obstacle.bx,
+						y: obstacle.by
+					}, {
+						x: obstacle.cx,
+						y: obstacle.cy
+					});
+				obstacle.caWidth = getDistance({
+						x: obstacle.cx,
+						y: obstacle.cy
+					}, {
+						x: obstacle.ax,
+						y: obstacle.ay
+					});
+				obstacle.caAngle = getAngle({
+						x: obstacle.cx,
+						y: obstacle.cy
+					}, {
+						x: obstacle.ax,
+						y: obstacle.ay
+					});
+			}
+		}
+	}
+
+	function getAngle(from, to) {
+		return Math.atan2(to.y - from.y, to.x - from.x);
+	}
+
+	function getDistance(from, to) {
+		var a = to.x - from.x;
+		var b = to.y - from.y;
+		return Math.sqrt(a * a + b * b);
+	}
+
+	function getTranslatedPoint(root, point, angle) {
+		angle = getAngle(root, point) + angle;
+		var distance = getDistance(point, root);
+		var x = Math.cos(angle) * distance + root.x;
+		var y = Math.sin(angle) * distance + root.y;
+		return {
+			x: x,
+			y: y
+		};
+	}
+
+	function getDistanceToCircle(from, circle) {
+		return getDistance(from, circle) - circle.radius;
+	}
+
+	function getDistanceToRect(from, rect) {
+		var angle = getAngle(rect, from) - rect.angle;
+		var distance = getDistance(rect, from);
+		var fromX = Math.cos(angle) * distance + rect.x;
+		var fromY = Math.sin(angle) * distance + rect.y;
+
+		var a = fromX - Math.max(Math.min(fromX, rect.x + rect.width), rect.x);
+		var b = fromY - Math.max(Math.min(fromY, rect.y + rect.height), rect.y);
+		return Math.sqrt(a * a + b * b);
+	}
+
+	// https://stackoverflow.com/questions/2049582/how-to-determine-if-a-point-is-in-a-2d-triangle
+	function isPointInsideTriangle(p, p0, p1, p2) {
+		var A = 1 / 2 * (-p1.y * p2.x + p0.y * (-p1.x + p2.x) + p0.x * (p1.y - p2.y) + p1.x * p2.y);
+		var sign = A < 0 ? -1 : 1;
+		var s = (p0.y * p2.x - p0.x * p2.y + (p2.y - p0.y) * p.x + (p0.x - p2.x) * p.y) * sign;
+		var t = (p0.x * p1.y - p0.y * p1.x + (p0.y - p1.y) * p.x + (p1.x - p0.x) * p.y) * sign;
+
+		return s > 0 && t > 0 && (s + t) < 2 * A * sign;
+	}
+
+	function getDistanceToTriangle(from, triangle) {
+		function getDistanceToSide(sideX, sideY, sideAngle, sideWidth) {
+			var angle = getAngle({
+					x: sideX,
+					y: sideY
+				}, from) - sideAngle;
+			var distance = getDistance({
+					x: sideX,
+					y: sideY
+				}, from);
+			var fromX = Math.cos(angle) * distance + sideX;
+			var fromY = Math.sin(angle) * distance + sideY;
+
+			var a = fromX - Math.max(Math.min(fromX, sideX + sideWidth), sideX);
+			var b = fromY - sideY;
+			return Math.sqrt(a * a + b * b);
+		}
+
+		var inside = isPointInsideTriangle(
+				from, {
+				x: triangle.ax,
+				y: triangle.ay
+			}, {
+				x: triangle.bx,
+				y: triangle.by
+			}, {
+				x: triangle.cx,
+				y: triangle.cy
+			});
+
+		var abDistance = getDistanceToSide(triangle.ax, triangle.ay, triangle.abAngle, triangle.abWidth);
+		var bcDistance = getDistanceToSide(triangle.bx, triangle.by, triangle.bcAngle, triangle.bcWidth);
+		var caDistance = getDistanceToSide(triangle.cx, triangle.cy, triangle.caAngle, triangle.caWidth);
+
+		return Math.min(Math.min(abDistance, bcDistance), caDistance) * (inside ? -1 : 1);
+	}
+
+	// Much more efficient, but causes artifacts at sharp corners.
+	function _getDistanceToTriangle(from, triangle) {
+		function getDistanceToSide(x1, y1, x2, y2, sideWidth) {
+			return ((y2 - y1) * from.x - (x2 - x1) * from.y + x2 * y1 - y2 * x1) / sideWidth;
+		}
+
+		var abDistance = getDistanceToSide(triangle.ax, triangle.ay, triangle.bx, triangle.by, triangle.abWidth);
+		var bcDistance = getDistanceToSide(triangle.bx, triangle.by, triangle.cx, triangle.cy, triangle.bcWidth);
+		var caDistance = getDistanceToSide(triangle.cx, triangle.cy, triangle.ax, triangle.ay, triangle.caWidth);
+
+		return Math.max(Math.max(abDistance, bcDistance), caDistance);
+	}
+
+	function drawCircle(color, circle, fill, stroke, width) {
+		context.strokeStyle = color;
+		context.fillStyle = color;
+		context.lineWidth = width || 1;
+		context.beginPath();
+		context.arc(circle.x, circle.y, circle.radius, 0, 2 * Math.PI, false);
+		if (stroke)
+			context.stroke();
+		if (fill)
+			context.fill();
+	}
+
+	function drawRect(color, rect, fill, stroke, width) {
+		context.fillStyle = color;
+		context.strokeStyle = color;
+		context.translate(rect.x, rect.y);
+		context.lineWidth = width || 1;
+		context.rotate(rect.angle);
+		if (stroke) {
+			context.rect(0, 0, rect.width, rect.height);
+			context.stroke();
+		}
+		if (fill)
+			context.fillRect(0, 0, rect.width, rect.height);
+		context.setTransform(1, 0, 0, 1, 0, 0);
+	}
+
+	function drawTriangle(color, triangle) {
+		context.fillStyle = color;
+		context.beginPath();
+		context.moveTo(triangle.ax, triangle.ay);
+		context.lineTo(triangle.bx, triangle.by);
+		context.lineTo(triangle.cx, triangle.cy);
+		context.closePath();
+		context.fill();
+	}
+
+	function drawLine(color, start, end, width) {
+		context.strokeStyle = color;
+		context.lineWidth = width;
+		context.beginPath();
+		context.moveTo(start.x, start.y);
+		context.lineTo(end.x, end.y);
+		context.stroke();
+	}
+
+	function onApplicationStart() {
+		prepareObstacles();
+
+		setInterval(onDraw, 33);
+	}
+
+	function onDraw() {
+		context.fillStyle = "#000000";
+		context.fillRect(0, 0, WIDTH, HEIGHT);
+
+		drawRays(rayPoint);
+		if (SHOW_OBSTACLES)
+			drawObstacles();
+		if (SHOW_OBSTACLES_BOUNDS)
+			drawObstaclesBounds();
+	}
+
+	function drawObstacles() {
+		for (obstacle of obstacles) {
+			if (obstacle.type === "circle")
+				drawCircle(obstacle.color, obstacle, true, false);
+			else if (obstacle.type === "rect")
+				drawRect(obstacle.color, obstacle, true);
+			else if (obstacle.type === "triangle")
+				drawTriangle(obstacle.color, obstacle);
+		}
+	}
+
+	function drawObstaclesBounds() {
+		for (obstacle of obstacles) {
+			drawRect(BOUNDS_COLOR, {
+				x: obstacle.boundary.left,
+				y: obstacle.boundary.top,
+				width: obstacle.boundary.right - obstacle.boundary.left,
+				height: obstacle.boundary.bottom - obstacle.boundary.top
+			}, false, true);
+		}
+	}
+
+	function drawRays(ray) {
+		var obstaclesToTest = obstacles.filter((obstacle) => {
+				return (obstacle.boundary.right >= ray.x - RAY_MAX_DISTANCE) &&
+				(obstacle.boundary.left <= ray.x + RAY_MAX_DISTANCE) &&
+				(obstacle.boundary.top <= ray.y + RAY_MAX_DISTANCE) &&
+				(obstacle.boundary.bottom >= ray.y - RAY_MAX_DISTANCE);
+			}) || [];
+		for (var i = 0; i < 360; i += RAY_ANGLE_STEP) {
+			ray.angle = i * Math.PI / 180;
+			drawRay(ray, obstaclesToTest);
+		}
+	}
+
+	function drawRay(ray, obstaclesToTest) {
+		var fullDistance = 0;
+		var from = {
+			x: ray.x,
+			y: ray.y
+		};
+		var to = {
+			x: 0,
+			y: 0
+		};
+		var distance;
+		var vector = {
+			x: Math.cos(ray.angle),
+			y: Math.sin(ray.angle)
+		};
+		while (fullDistance < RAY_MAX_DISTANCE) {
+			var distance = getMinDistance(from, vector, obstaclesToTest);
+
+			if (distance <= RAY_WIDTH / 2)
+				break;
+			else if (fullDistance + distance > RAY_MAX_DISTANCE)
+				distance = RAY_MAX_DISTANCE - fullDistance;
+
+			to.x = vector.x * distance + from.x;
+			to.y = vector.y * distance + from.y;
+
+			from.radius = distance;
+			fullDistance += distance;
+
+			/*if (SHOW_RAYS)
+			drawLine(RAY_COLOR, from, to, RAY_WIDTH);*/
+			if (SHOW_DISTANCE)
+				drawCircle(DISTANCE_COLOR, from, false, true, 1);
+
+			from.x = to.x;
+			from.y = to.y;
+		}
+
+		if (SHOW_RAYS && fullDistance > 0)
+			drawLine(RAY_COLOR, ray, to, RAY_WIDTH);
+	}
+
+	function getMinDistance(from, vector, obstaclesToTest) {
+		var result = Number.MAX_VALUE;
+		var distance;
+		for (obstacle of obstaclesToTest) {
+			if (vector.x >= 0 && from.x > obstacle.boundary.right
+				 || vector.x <= 0 && from.x < obstacle.boundary.left
+				 || vector.y >= 0 && from.y > obstacle.boundary.bottom
+				 || vector.y <= 0 && from.y < obstacle.boundary.top)
+				continue;
+
+			if (obstacle.type === "circle") {
+				distance = getDistanceToCircle(from, obstacle);
+			} else if (obstacle.type === "rect") {
+				distance = getDistanceToRect(from, obstacle);
+			} else if (obstacle.type === "triangle") {
+				distance = getDistanceToTriangle(from, obstacle);
+			}
+			if (result > distance)
+				result = distance;
+		}
+
+		return result;
+	}
+
+	function getMousePosition(canvas, event) {
+		var rect = canvas.getBoundingClientRect();
+		return {
+			x: (event.clientX - rect.left) / (rect.right - rect.left) * canvas.width,
+			y: (event.clientY - rect.top) / (rect.bottom - rect.top) * canvas.height
+		};
+	}
+
+	canvas.addEventListener('mousemove', event => {
+		var mousePosition = getMousePosition(canvas, event);
+		rayPoint.x = mousePosition.x;
+		rayPoint.y = mousePosition.y;
+	});
+
+	window.onload = onApplicationStart;
+</script>
+</body>
+</html>
